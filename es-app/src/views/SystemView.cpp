@@ -134,6 +134,11 @@ bool SystemView::input(InputConfig* config, Input input)
 			ViewController::get()->goToGameList(getSelected());
 			return true;
 		}
+		if (config->isMappedTo("x", input))
+		{
+			ViewController::get()->goToRandomGame();
+			return true;
+		}
 	}else{
 		if(config->isMappedTo("left", input) || 
 			config->isMappedTo("right", input) ||
@@ -286,6 +291,7 @@ std::vector<HelpPrompt> SystemView::getHelpPrompts()
 	else
 		prompts.push_back(HelpPrompt("left/right", "choose"));
 	prompts.push_back(HelpPrompt("a", "select"));
+	prompts.push_back(HelpPrompt("x", "random"));
 	return prompts;
 }
 
@@ -437,8 +443,9 @@ void  SystemView::getDefaultElements(void)
 
 	// System Info Bar
 	mSystemInfo.setSize(mSize.x(), mSystemInfo.getFont()->getLetterHeight()*2.2f);
-	mSystemInfo.setPosition(0, (mCarousel.pos.y() + mCarousel.size.y()));
+	mSystemInfo.setPosition(0, (mCarousel.pos.y() + mCarousel.size.y() - 0.2f));
 	mSystemInfo.setBackgroundColor(0xDDDDDDD8);
+	mSystemInfo.setRenderBackground(true);
 	mSystemInfo.setFont(Font::get((int)(0.035f * mSize.y()), Font::getDefaultPath()));
 	mSystemInfo.setColor(0x000000FF);
 }
