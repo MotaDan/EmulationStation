@@ -2,6 +2,7 @@
 #include "Log.h"
 #include "SystemData.h"
 #include "Settings.h"
+#include "PowerSaver.h"
 
 #include "views/gamelist/BasicGameListView.h"
 #include "views/gamelist/DetailedGameListView.h"
@@ -71,6 +72,7 @@ void ViewController::goToSystemView(SystemData* system)
 
 	systemList->goToSystem(system, false);
 	mCurrentView = systemList;
+	PowerSaver::setState(true);
 
 	playViewTransition();
 }
@@ -124,7 +126,7 @@ void ViewController::goToRandomGame()
 	unsigned int total = 0;
 	for(auto it = SystemData::sSystemVector.begin(); it != SystemData::sSystemVector.end(); it++)
 	{
-		if ((*it)->getName() != "retropie")
+		if ((*it)->isGameSystem())
 			total += (*it)->getDisplayedGameCount();
 	}
 
@@ -133,7 +135,7 @@ void ViewController::goToRandomGame()
 
 	for (auto it = SystemData::sSystemVector.begin(); it != SystemData::sSystemVector.end(); it++)
 	{
-		if ((*it)->getName() != "retropie")
+		if ((*it)->isGameSystem())
 		{
 			if ((target - (int)(*it)->getDisplayedGameCount()) >= 0)
 			{
@@ -160,7 +162,8 @@ void ViewController::playViewTransition()
 	if(target == -mCamera.translation() && !isAnimationPlaying(0))
 		return;
 
-	if(Settings::getInstance()->getString("TransitionStyle") == "fade")
+	std::string transition_style = Settings::getInstance()->getString("TransitionStyle");
+	if(transition_style == "fade")
 	{
 		// fade
 		// stop whatever's currently playing, leaving mFadeOpacity wherever it is
@@ -188,10 +191,18 @@ void ViewController::playViewTransition()
 		}else{
 			advanceAnimation(0, (int)(mFadeOpacity * FADE_DURATION));
 		}
-	}else{
-		// slide
+	} else if (transition_style == "slide"){
+		// slide or simple slide
 		setAnimation(new MoveCameraAnimation(mCamera, target));
 		updateHelpPrompts(); // update help prompts immediately
+	} else {
+		// instant
+		setAnimation(new LambdaAnimation(
+			[this, target](float t)
+		{
+			this->mCamera.translation() = -target;
+		}, 1));
+		updateHelpPrompts();
 	}
 }
 
@@ -219,9 +230,11 @@ void ViewController::launch(FileData* game, Eigen::Vector3f center)
 
 	center += mCurrentView->getPosition();
 	stopAnimation(1); // make sure the fade in isn't still playing
+	mWindow->stopInfoPopup(); // make sure we disable any existing info popup
 	mLockInput = true;
 
-	if(Settings::getInstance()->getString("TransitionStyle") == "fade")
+	std::string transition_style = Settings::getInstance()->getString("TransitionStyle");
+	if(transition_style == "fade")
 	{
 		// fade out, launch game, fade back in
 		auto fadeFunc = [this](float t) {
@@ -231,19 +244,28 @@ void ViewController::launch(FileData* game, Eigen::Vector3f center)
 		};
 		setAnimation(new LambdaAnimation(fadeFunc, 800), 0, [this, game, fadeFunc]
 		{
-			game->getSystem()->launchGame(mWindow, game);
+			game->launchGame(mWindow);
 			mLockInput = false;
 			setAnimation(new LambdaAnimation(fadeFunc, 800), 0, nullptr, true);
 			this->onFileChanged(game, FILE_METADATA_CHANGED);
 		});
-	}else{
+	} else if (transition_style == "slide"){
 		// move camera to zoom in on center + fade out, launch game, come back in
 		setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 1500), 0, [this, origCamera, center, game]
 		{
-			game->getSystem()->launchGame(mWindow, game);
+			game->launchGame(mWindow);
 			mCamera = origCamera;
 			mLockInput = false;
 			setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 600), 0, nullptr, true);
+			this->onFileChanged(game, FILE_METADATA_CHANGED);
+		});
+	} else {
+		setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, [this, origCamera, center, game]
+		{
+			game->launchGame(mWindow);
+			mCamera = origCamera;
+			mLockInput = false;
+			setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, nullptr, true);
 			this->onFileChanged(game, FILE_METADATA_CHANGED);
 		});
 	}
@@ -417,14 +439,12 @@ void ViewController::reloadGameListView(IGameListView* view, bool reloadTheme)
 
 			if(reloadTheme)
 				system->loadTheme();
-
 			std::shared_ptr<IGameListView> newView = getGameListView(system);
 
 			// to counter having come from a placeholder
 			if (!cursor->isPlaceHolder()) {
 				newView->setCursor(cursor);
 			}
-
 			if(isCurrent)
 				mCurrentView = newView;
 
